@@ -1,0 +1,8 @@
+{
+"name":"Wizard Online",
+"short_name":"Wizard",
+"display":"standalone",
+"background_color":"#1e272e",
+"theme_color":"#1e272e",
+"start_url":"./"
+}
