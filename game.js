@@ -2,10 +2,11 @@ const app = document.getElementById("app");
 
 let playerName = "";
 let lobbyCode = "";
-let playerId = Math.random().toString(36).substr(2, 9);
+let playerId = localStorage.getItem("wizardPlayerId") ||
+               Math.random().toString(36).substr(2, 9);
+localStorage.setItem("wizardPlayerId", playerId);
 
 let lobbyRef;
-let isHost = false;
 
 // ================= START =================
 showStart();
@@ -27,7 +28,6 @@ function createLobby() {
 
   lobbyCode = Math.random().toString(36).substr(2, 5).toUpperCase();
   lobbyRef = db.ref("lobbies/" + lobbyCode);
-  isHost = true;
 
   lobbyRef.set({
     host: playerId,
@@ -60,6 +60,7 @@ function joinLobby() {
   });
 }
 
+// ================= LOBBY LISTENER =================
 function enterLobby() {
   lobbyRef.on("value", snap => {
     const data = snap.val();
@@ -73,11 +74,13 @@ function enterLobby() {
 // ================= LOBBY UI =================
 function renderLobby(data) {
   const players = Object.values(data.players || {});
+  const isHost = data.host === playerId;
+
   app.innerHTML = `
     <h2>Lobby ${lobbyCode}</h2>
     <h3>Spieler (${players.length}/6)</h3>
     ${players.map(p => `<div>${p.name}</div>`).join("")}
-    ${data.host === playerId && players.length >= 3
+    ${isHost && players.length >= 3
       ? `<button onclick="startRound()">Runde starten</button>`
       : `<p>Warte auf Host…</p>`
     }
@@ -86,27 +89,25 @@ function renderLobby(data) {
 
 // ================= RUNDE START =================
 function startRound() {
-  if (!isHost) return;
-
   lobbyRef.once("value", snap => {
     const data = snap.val();
+    if (data.host !== playerId) return;
+
     const players = Object.keys(data.players);
+    const round = data.round;
 
     const deck = createDeck();
     shuffle(deck);
 
-    const round = data.round;
     const hands = {};
     players.forEach(pid => hands[pid] = []);
 
-    // Karten austeilen
     for (let i = 0; i < round; i++) {
       players.forEach(pid => {
         hands[pid].push(deck.pop());
       });
     }
 
-    // Trumpfkarte
     const trump = deck.pop() || null;
 
     lobbyRef.update({
