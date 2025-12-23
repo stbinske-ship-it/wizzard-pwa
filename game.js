@@ -1,7 +1,8 @@
 const app = document.getElementById("app");
 
 // =================== PLAYER ID ===================
-let playerId = localStorage.getItem("wizardPlayerId") || sessionStorage.getItem("wizardPlayerId");
+const urlParams = new URLSearchParams(window.location.search);
+let playerId = urlParams.get("player") || localStorage.getItem("wizardPlayerId") || sessionStorage.getItem("wizardPlayerId");
 if(!playerId){
   playerId = Math.random().toString(36).substr(2, 9);
   try { localStorage.setItem("wizardPlayerId", playerId); } catch(e){}
@@ -41,9 +42,7 @@ function createLobby() {
     players: {
       [playerId]: { name: playerName, score: 0 }
     }
-  });
-
-  enterLobby();
+  }).then(() => enterLobby());
 }
 
 function joinLobby() {
@@ -59,25 +58,25 @@ function joinLobby() {
     lobbyRef.child("players/" + playerId).set({
       name: playerName,
       score: 0
-    });
-
-    enterLobby();
+    }).then(() => enterLobby());
   });
 }
 
 // =================== LOBBY LISTENER ===================
 function enterLobby() {
-  if(!lobbyRef) return; // Sicherheitscheck
+  if(!lobbyRef) return;
 
   lobbyRef.on("value", snap => {
     const data = snap.val();
-    if (!data) return;
+    if(!data) return;
 
-    if (data.state === "waiting") renderLobby(data);
-    if (data.state === "round") renderRound(data);
-    if (data.state === "play") renderPlay(data);
-    if (data.state === "endRound") renderEndRound(data);
-    if (data.state === "finished") renderFinished(data);
+    switch(data.state){
+      case "waiting": renderLobby(data); break;
+      case "round": renderRound(data); break;
+      case "play": renderPlay(data); break;
+      case "endRound": renderEndRound(data); break;
+      case "finished": renderFinished(data); break;
+    }
   });
 }
 
@@ -166,7 +165,6 @@ function submitPrediction() {
   if (isNaN(value)) return alert("Bitte Zahl eingeben");
 
   lobbyRef.child("predictions/" + playerId).set(value);
-  // kein direktes rendern – Listener aktualisiert automatisch
 }
 
 // =================== STICHPHASE ===================
