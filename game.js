@@ -91,7 +91,7 @@ function renderLobby(data) {
 function startRound() {
   lobbyRef.once("value", snap => {
     const data = snap.val();
-    if (data.host !== playerId) return;
+    if (!data || data.host !== playerId) return;
 
     const players = Object.keys(data.players);
     const round = data.round;
@@ -115,8 +115,10 @@ function startRound() {
       trump,
       hands
     });
+    // ❗ KEIN UI-UPDATE HIER
   });
 }
+
 
 // ================= RUNDE UI =================
 function renderRound(data) {
