@@ -1,8 +1,8 @@
 {
-"name":"Wizard Online",
-"short_name":"Wizard",
-"display":"standalone",
-"background_color":"#1e272e",
-"theme_color":"#1e272e",
-"start_url":"./"
+  "name": "Wizard Online",
+  "short_name": "Wizard",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0d3b12",
+  "theme_color": "#0d3b12"
 }
