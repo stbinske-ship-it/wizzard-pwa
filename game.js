@@ -48,7 +48,7 @@ function joinLobby() {
 
   lobbyRef = db.ref("lobbies/" + lobbyCode);
 
-  lobbyRef.once("value", snap => {
+  lobbyRef.once("value").then(snap => {
     if (!snap.exists()) return alert("Lobby nicht gefunden");
 
     lobbyRef.child("players/" + playerId).set({
@@ -70,6 +70,7 @@ function enterLobby() {
     if (data.state === "round") renderRound(data);
     if (data.state === "play") renderPlay(data);
     if (data.state === "endRound") renderEndRound(data);
+    if (data.state === "finished") renderFinished(data);
   });
 }
 
@@ -91,7 +92,7 @@ function renderLobby(data) {
 
 // ================= RUNDE START =================
 function startRound() {
-  lobbyRef.once("value", snap => {
+  lobbyRef.once("value").then(snap => {
     const data = snap.val();
     if (!data || data.host !== playerId) return;
 
@@ -155,7 +156,14 @@ function renderRound(data) {
 function submitPrediction() {
   const value = parseInt(document.getElementById("prediction").value);
   if (isNaN(value)) return alert("Bitte Zahl eingeben");
-  lobbyRef.child("predictions/" + playerId).set(value);
+
+  lobbyRef.child("predictions/" + playerId).set(value, () => {
+    // sofort neu rendern nach Firebase Update
+    lobbyRef.once("value").then(snap => {
+      const data = snap.val();
+      if (data) renderRound(data);
+    });
+  });
 }
 
 // ================= STICHPHASE =================
@@ -186,7 +194,7 @@ function renderPlay(data) {
 }
 
 function playCard(index) {
-  lobbyRef.once("value", snap => {
+  lobbyRef.once("value").then(snap => {
     const data = snap.val();
     if (!data) return;
     const hand = data.hands[playerId];
@@ -207,7 +215,7 @@ function playCard(index) {
     // Prüfen, ob alle gespielt haben
     if (Object.keys(played).length === Object.keys(data.players).length) {
       // Stich auswerten
-      const winnerId = calculateTrickWinner(trick, data.trump, data.hands);
+      const winnerId = calculateTrickWinner(trick, data.trump);
       update.state = "endRound";
       update.trickWinner = winnerId;
     }
@@ -225,10 +233,10 @@ function renderEndRound(data) {
   let players = data.players;
   let roundPred = data.predictions || {};
   const round = data.round;
-  if(!players[winnerId].tricks) players[winnerId].tricks=0;
-  players[winnerId].tricks++;
 
   Object.keys(players).forEach(pid=>{
+    if(!players[pid].tricks) players[pid].tricks=0;
+    if(pid===winnerId) players[pid].tricks++;
     const pred = roundPred[pid];
     if(pred===players[pid].tricks){
       players[pid].score += 20 + pred*10;
@@ -251,6 +259,13 @@ function renderEndRound(data) {
   lobbyRef.update({players, round: nextRound, state: newState, played:{}, trick:[]});
 }
 
+// ================= SPIEL BEENDET =================
+function renderFinished(data){
+  app.innerHTML = `<h2>Spiel beendet!</h2>
+  <h3>Endstand:</h3>
+  ${Object.values(data.players).map(p=>`<div>${p.name}: ${p.score}</div>`).join("")}`;
+}
+
 // ================= KARTEN =================
 function createDeck() {
   const deck = [];
@@ -263,8 +278,7 @@ function shuffle(arr){for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.ra
 function renderCard(card){if(!card)return "–";if(card.special==="wizard")return "🧙";if(card.special==="fool")return "🤡";return `<span class="card ${card.color}">${card.value}</span>`}
 
 // ================= STICH GEWINNER =================
-function calculateTrickWinner(trick, trump, hands){
-  // Einfacher Algorithmus: Wizard > Trumpf > erste Farbe
+function calculateTrickWinner(trick, trump){
   let leadColor = null;
   let winner = trick[0];
   trick.forEach((p,i)=>{
