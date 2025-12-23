@@ -1,14 +1,19 @@
 const app = document.getElementById("app");
 
+// =================== PLAYER ID ===================
+let playerId = localStorage.getItem("wizardPlayerId") || sessionStorage.getItem("wizardPlayerId");
+if(!playerId){
+  playerId = Math.random().toString(36).substr(2, 9);
+  try { localStorage.setItem("wizardPlayerId", playerId); } catch(e){}
+  try { sessionStorage.setItem("wizardPlayerId", playerId); } catch(e){}
+}
+
+// =================== VARS ===================
 let playerName = "";
 let lobbyCode = "";
-let playerId = localStorage.getItem("wizardPlayerId") ||
-               Math.random().toString(36).substr(2, 9);
-localStorage.setItem("wizardPlayerId", playerId);
-
 let lobbyRef;
 
-// ================= START =================
+// =================== START ===================
 showStart();
 
 function showStart() {
@@ -21,7 +26,7 @@ function showStart() {
   `;
 }
 
-// ================= LOBBY =================
+// =================== LOBBY ===================
 function createLobby() {
   playerName = document.getElementById("name").value.trim();
   if (!playerName) return alert("Name eingeben");
@@ -60,8 +65,10 @@ function joinLobby() {
   });
 }
 
-// ================= LOBBY LISTENER =================
+// =================== LOBBY LISTENER ===================
 function enterLobby() {
+  if(!lobbyRef) return; // Sicherheitscheck
+
   lobbyRef.on("value", snap => {
     const data = snap.val();
     if (!data) return;
@@ -74,7 +81,7 @@ function enterLobby() {
   });
 }
 
-// ================= LOBBY UI =================
+// =================== LOBBY UI ===================
 function renderLobby(data) {
   const players = Object.values(data.players || {});
   const isHost = data.host === playerId;
@@ -90,7 +97,7 @@ function renderLobby(data) {
   `;
 }
 
-// ================= RUNDE START =================
+// =================== RUNDE START ===================
 function startRound() {
   lobbyRef.once("value").then(snap => {
     const data = snap.val();
@@ -124,7 +131,7 @@ function startRound() {
   });
 }
 
-// ================= ANSAGEPHASE =================
+// =================== ANSAGEPHASE ===================
 function renderRound(data) {
   const myHand = data.hands[playerId] || [];
   const predictions = data.predictions || {};
@@ -158,11 +165,11 @@ function submitPrediction() {
   const value = parseInt(document.getElementById("prediction").value);
   if (isNaN(value)) return alert("Bitte Zahl eingeben");
 
-  // ✅ Nur Firebase schreiben, Listener aktualisiert UI für alle
   lobbyRef.child("predictions/" + playerId).set(value);
+  // kein direktes rendern – Listener aktualisiert automatisch
 }
 
-// ================= STICHPHASE =================
+// =================== STICHPHASE ===================
 function startPlay() {
   lobbyRef.update({ state: "play", trick: [], played: {} });
 }
@@ -171,7 +178,6 @@ function renderPlay(data) {
   const myHand = data.hands[playerId] || [];
   const played = data.played || {};
   const trick = data.trick || [];
-  const players = Object.keys(data.players);
 
   app.innerHTML = `
     <h2>Runde ${data.round} – Stichphase</h2>
@@ -217,7 +223,7 @@ function playCard(index) {
   });
 }
 
-// ================= STICH AUSWERTEN =================
+// =================== STICH AUSWERTEN ===================
 function renderEndRound(data) {
   const winnerId = data.trickWinner;
   const winnerName = data.players[winnerId].name;
@@ -250,14 +256,14 @@ function renderEndRound(data) {
   lobbyRef.update({players, round: nextRound, state: newState, played:{}, trick:[]});
 }
 
-// ================= SPIEL BEENDET =================
+// =================== SPIEL BEENDET ===================
 function renderFinished(data){
   app.innerHTML = `<h2>Spiel beendet!</h2>
   <h3>Endstand:</h3>
   ${Object.values(data.players).map(p=>`<div>${p.name}: ${p.score}</div>`).join("")}`;
 }
 
-// ================= KARTEN =================
+// =================== KARTEN ===================
 function createDeck() {
   const deck = [];
   const colors = ["blue", "green", "yellow", "red"];
@@ -268,7 +274,7 @@ function createDeck() {
 function shuffle(arr){for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]]}}
 function renderCard(card){if(!card)return "–";if(card.special==="wizard")return "🧙";if(card.special==="fool")return "🤡";return `<span class="card ${card.color}">${card.value}</span>`}
 
-// ================= STICH GEWINNER =================
+// =================== STICH GEWINNER ===================
 function calculateTrickWinner(trick, trump){
   let leadColor = null;
   let winner = trick[0];
