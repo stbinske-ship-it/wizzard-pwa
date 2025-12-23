@@ -4,7 +4,10 @@ let playerName = "";
 let lobbyCode = "";
 let playerId = Math.random().toString(36).substr(2, 9);
 
-// UI Start
+let lobbyRef;
+let isHost = false;
+
+// ================= START =================
 showStart();
 
 function showStart() {
@@ -17,75 +20,145 @@ function showStart() {
   `;
 }
 
-// Lobby erstellen
+// ================= LOBBY =================
 function createLobby() {
   playerName = document.getElementById("name").value.trim();
   if (!playerName) return alert("Name eingeben");
 
   lobbyCode = Math.random().toString(36).substr(2, 5).toUpperCase();
+  lobbyRef = db.ref("lobbies/" + lobbyCode);
+  isHost = true;
 
-  db.ref("lobbies/" + lobbyCode).set({
+  lobbyRef.set({
     host: playerId,
+    state: "waiting",
+    round: 1,
     players: {
-      [playerId]: { name: playerName }
-    },
-    state: "waiting"
+      [playerId]: { name: playerName, score: 0 }
+    }
   });
 
   enterLobby();
 }
 
-// Lobby beitreten
 function joinLobby() {
   playerName = document.getElementById("name").value.trim();
   lobbyCode = document.getElementById("code").value.trim().toUpperCase();
-
   if (!playerName || !lobbyCode) return alert("Name & Code eingeben");
 
-  db.ref("lobbies/" + lobbyCode).once("value", snap => {
+  lobbyRef = db.ref("lobbies/" + lobbyCode);
+
+  lobbyRef.once("value", snap => {
     if (!snap.exists()) return alert("Lobby nicht gefunden");
 
-    db.ref(`lobbies/${lobbyCode}/players/${playerId}`).set({
-      name: playerName
+    lobbyRef.child("players/" + playerId).set({
+      name: playerName,
+      score: 0
     });
 
     enterLobby();
   });
 }
 
-// Lobby Ansicht
 function enterLobby() {
-  const lobbyRef = db.ref("lobbies/" + lobbyCode);
-
-  app.innerHTML = `
-    <h2>Lobby ${lobbyCode}</h2>
-    <div id="players"></div>
-    <button id="startBtn" onclick="startGame()" style="display:none">
-      Spiel starten
-    </button>
-  `;
-
   lobbyRef.on("value", snap => {
     const data = snap.val();
     if (!data) return;
 
-    const playersDiv = document.getElementById("players");
-    playersDiv.innerHTML = "<h3>Spieler:</h3>";
-
-    const players = Object.values(data.players || {});
-    players.forEach(p => {
-      playersDiv.innerHTML += `<div>${p.name}</div>`;
-    });
-
-    // Host darf starten
-    if (data.host === playerId && players.length >= 3) {
-      document.getElementById("startBtn").style.display = "inline-block";
-    }
+    if (data.state === "waiting") renderLobby(data);
+    if (data.state === "round") renderRound(data);
   });
 }
 
-// Spielstart (Platzhalter)
-function startGame() {
-  db.ref(`lobbies/${lobbyCode}/state`).set("game");
-  app.innerHTML = "<h2>Spiel startet…</h2>";
+// ================= LOBBY UI =================
+function renderLobby(data) {
+  const players = Object.values(data.players || {});
+  app.innerHTML = `
+    <h2>Lobby ${lobbyCode}</h2>
+    <h3>Spieler (${players.length}/6)</h3>
+    ${players.map(p => `<div>${p.name}</div>`).join("")}
+    ${data.host === playerId && players.length >= 3
+      ? `<button onclick="startRound()">Runde starten</button>`
+      : `<p>Warte auf Host…</p>`
+    }
+  `;
+}
+
+// ================= RUNDE START =================
+function startRound() {
+  if (!isHost) return;
+
+  lobbyRef.once("value", snap => {
+    const data = snap.val();
+    const players = Object.keys(data.players);
+
+    const deck = createDeck();
+    shuffle(deck);
+
+    const round = data.round;
+    const hands = {};
+    players.forEach(pid => hands[pid] = []);
+
+    // Karten austeilen
+    for (let i = 0; i < round; i++) {
+      players.forEach(pid => {
+        hands[pid].push(deck.pop());
+      });
+    }
+
+    // Trumpfkarte
+    const trump = deck.pop() || null;
+
+    lobbyRef.update({
+      state: "round",
+      trump,
+      hands
+    });
+  });
+}
+
+// ================= RUNDE UI =================
+function renderRound(data) {
+  const myHand = data.hands[playerId] || [];
+
+  app.innerHTML = `
+    <h2>Runde ${data.round}</h2>
+    <h3>Trumpf: ${renderCard(data.trump)}</h3>
+    <h3>Deine Karten</h3>
+    <div>${myHand.map(renderCard).join("")}</div>
+    <p>Ansagephase folgt…</p>
+  `;
+}
+
+// ================= KARTEN =================
+function createDeck() {
+  const deck = [];
+  const colors = ["blue", "green", "yellow", "red"];
+
+  colors.forEach(c => {
+    for (let v = 1; v <= 13; v++) {
+      deck.push({ color: c, value: v });
+    }
+  });
+
+  for (let i = 0; i < 4; i++) {
+    deck.push({ special: "wizard" });
+    deck.push({ special: "fool" });
+  }
+
+  return deck;
+}
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+function renderCard(card) {
+  if (!card) return "–";
+  if (card.special === "wizard") return "🧙";
+  if (card.special === "fool") return "🤡";
+  return `<span class="card ${card.color}">${card.value}</span>`;
 }
