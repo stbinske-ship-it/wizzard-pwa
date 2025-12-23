@@ -68,6 +68,8 @@ function enterLobby() {
 
     if (data.state === "waiting") renderLobby(data);
     if (data.state === "round") renderRound(data);
+    if (data.state === "play") renderPlay(data);
+    if (data.state === "endRound") renderEndRound(data);
   });
 }
 
@@ -113,55 +115,165 @@ function startRound() {
     lobbyRef.update({
       state: "round",
       trump,
-      hands
+      hands,
+      predictions: {},
+      played: {},
+      trick: [],
     });
-    // ❗ KEIN UI-UPDATE HIER
   });
 }
 
-
-// ================= RUNDE UI =================
+// ================= ANSAGEPHASE =================
 function renderRound(data) {
   const myHand = data.hands[playerId] || [];
+  const predictions = data.predictions || {};
+  const players = Object.keys(data.players);
+
+  const allPredicted = Object.keys(predictions).length === players.length;
 
   app.innerHTML = `
     <h2>Runde ${data.round}</h2>
     <h3>Trumpf: ${renderCard(data.trump)}</h3>
     <h3>Deine Karten</h3>
     <div>${myHand.map(renderCard).join("")}</div>
-    <p>Ansagephase folgt…</p>
+    <h3>Ansage</h3>
+    ${
+      predictions[playerId] === undefined
+        ? `<input id="prediction" type="number" min="0" max="${data.round}">
+           <button onclick="submitPrediction()">Ansage bestätigen</button>`
+        : `<p>Ansage abgegeben ✅</p>`
+    }
+    ${
+      allPredicted
+        ? `<p>Alle Ansagen sind da ✔</p>
+           <button onclick="startPlay()">Stichphase starten</button>`
+        : `<p>Warte auf andere Spieler…</p>`
+    }
   `;
+}
+
+function submitPrediction() {
+  const value = parseInt(document.getElementById("prediction").value);
+  if (isNaN(value)) return alert("Bitte Zahl eingeben");
+  lobbyRef.child("predictions/" + playerId).set(value);
+}
+
+// ================= STICHPHASE =================
+function startPlay() {
+  lobbyRef.update({ state: "play", trick: [], played: {} });
+}
+
+function renderPlay(data) {
+  const myHand = data.hands[playerId] || [];
+  const played = data.played || {};
+  const trick = data.trick || [];
+  const players = Object.keys(data.players);
+
+  app.innerHTML = `
+    <h2>Runde ${data.round} – Stichphase</h2>
+    <h3>Trumpf: ${renderCard(data.trump)}</h3>
+    <h3>Deine Karten</h3>
+    <div>
+      ${myHand.map((c, i) =>
+        `<span class="card ${c.color||''}" onclick="playCard(${i})">
+          ${c.special? (c.special==='wizard'?'🧙':'🤡') : c.value}
+        </span>`
+      ).join('')}
+    </div>
+    <h3>Aktueller Stich</h3>
+    ${trick.map(p => `<div>${data.players[p.pid].name}: ${renderCard(p.card)}</div>`).join("")}
+  `;
+}
+
+function playCard(index) {
+  lobbyRef.once("value", snap => {
+    const data = snap.val();
+    if (!data) return;
+    const hand = data.hands[playerId];
+    const card = hand[index];
+
+    // Karte entfernen aus der Hand
+    hand.splice(index,1);
+    data.hands[playerId] = hand;
+
+    const trick = data.trick || [];
+    trick.push({ pid: playerId, card });
+
+    const played = data.played || {};
+    played[playerId] = card;
+
+    let update = { hands: data.hands, trick, played };
+
+    // Prüfen, ob alle gespielt haben
+    if (Object.keys(played).length === Object.keys(data.players).length) {
+      // Stich auswerten
+      const winnerId = calculateTrickWinner(trick, data.trump, data.hands);
+      update.state = "endRound";
+      update.trickWinner = winnerId;
+    }
+
+    lobbyRef.update(update);
+  });
+}
+
+// ================= STICH AUSWERTEN =================
+function renderEndRound(data) {
+  const winnerId = data.trickWinner;
+  const winnerName = data.players[winnerId].name;
+
+  // Punkte für Spieler aktualisieren
+  let players = data.players;
+  let roundPred = data.predictions || {};
+  const round = data.round;
+  if(!players[winnerId].tricks) players[winnerId].tricks=0;
+  players[winnerId].tricks++;
+
+  Object.keys(players).forEach(pid=>{
+    const pred = roundPred[pid];
+    if(pred===players[pid].tricks){
+      players[pid].score += 20 + pred*10;
+    }
+    players[pid].tricks=0;
+  });
+
+  // Nächste Runde vorbereiten
+  const nextRound = round+1;
+  const newState = nextRound>20 ? "finished" : "waiting";
+
+  app.innerHTML = `
+    <h2>Stich beendet</h2>
+    <p>Gewinner: ${winnerName}</p>
+    <h3>Scores:</h3>
+    ${Object.values(players).map(p=>`<div>${p.name}: ${p.score}</div>`).join("")}
+    ${newState==="waiting" ? `<button onclick="startRound()">Nächste Runde</button>` : `<p>Spiel beendet!</p>`}
+  `;
+
+  lobbyRef.update({players, round: nextRound, state: newState, played:{}, trick:[]});
 }
 
 // ================= KARTEN =================
 function createDeck() {
   const deck = [];
   const colors = ["blue", "green", "yellow", "red"];
-
-  colors.forEach(c => {
-    for (let v = 1; v <= 13; v++) {
-      deck.push({ color: c, value: v });
-    }
-  });
-
-  for (let i = 0; i < 4; i++) {
-    deck.push({ special: "wizard" });
-    deck.push({ special: "fool" });
-  }
-
+  colors.forEach(c=>{for(let v=1;v<=13;v++){deck.push({color:c,value:v})}});
+  for(let i=0;i<4;i++){deck.push({special:"wizard"});deck.push({special:"fool"});}
   return deck;
 }
+function shuffle(arr){for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]]}}
+function renderCard(card){if(!card)return "–";if(card.special==="wizard")return "🧙";if(card.special==="fool")return "🤡";return `<span class="card ${card.color}">${card.value}</span>`}
 
-function shuffle(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-}
-
-function renderCard(card) {
-  if (!card) return "–";
-  if (card.special === "wizard") return "🧙";
-  if (card.special === "fool") return "🤡";
-  return `<span class="card ${card.color}">${card.value}</span>`;
+// ================= STICH GEWINNER =================
+function calculateTrickWinner(trick, trump, hands){
+  // Einfacher Algorithmus: Wizard > Trumpf > erste Farbe
+  let leadColor = null;
+  let winner = trick[0];
+  trick.forEach((p,i)=>{
+    const c = p.card;
+    if(i===0 && !c.special) leadColor = c.color;
+    if(c.special==="wizard"){winner=p; return;}
+    if(winner.card.special==="wizard") return;
+    if(trump && c.color===trump.color && winner.card.color!==trump.color){winner=p;return;}
+    if(c.color===winner.card.color && c.value>winner.card.value){winner=p;}
+  });
+  return winner.pid;
 }
